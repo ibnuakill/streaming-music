@@ -3,6 +3,6 @@
 // For Android emulator: http://10.0.2.2:3000 ; for physical device via adb: adb reverse tcp:3000 tcp:3000
 
 export const API_BASE =
-  process.env.EXPO_PUBLIC_API_URL || 'https://richmusic.vercel.app';
+  process.env.EXPO_PUBLIC_API_URL || 'https://streaming-music-rho.vercel.app';
 
 export const API = (path) => `${API_BASE}${path}`;
