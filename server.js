@@ -53,34 +53,60 @@ function extractAudioUrl(data) {
   return withUrl[0].url;
 }
 
+let cachedVisitor = null;
+let visitorFetchedAt = 0;
+async function getVisitorData() {
+  if (cachedVisitor && Date.now() - visitorFetchedAt < 30 * 60 * 1000) return cachedVisitor;
+  try {
+    const r = await fetch('https://www.youtube.com/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const t = await r.text();
+    const m = t.match(/"visitorData":"([^"]+)"/);
+    if (m) { cachedVisitor = m[1]; visitorFetchedAt = Date.now(); return cachedVisitor; }
+  } catch {}
+  return cachedVisitor;
+}
+
 async function getAudioUrl(videoId) {
-  const ANDROID_CTX = { client: { clientName: 'ANDROID', clientVersion: '20.13.41', androidSdkVersion: 30, hl: 'en', gl: 'US' } };
-  const IOS_CTX = { client: { clientName: 'IOS', clientVersion: '20.13.41', deviceModel: 'iPhone16,2', hl: 'en', gl: 'US' } };
-  const WEB_CTX = CONTEXT;
+  const visitorData = await getVisitorData();
+  const baseAndroid = { clientName: 'ANDROID', clientVersion: '20.13.41', androidSdkVersion: 30, hl: 'en', gl: 'US' };
+  const ANDROID_CTX = visitorData ? { client: { ...baseAndroid, visitorData } } : { client: baseAndroid };
+  const baseIos = { clientName: 'IOS', clientVersion: '20.13.41', deviceModel: 'iPhone16,2', hl: 'en', gl: 'US' };
+  const IOS_CTX = visitorData ? { client: { ...baseIos, visitorData } } : { client: baseIos };
+  const WEB_CTX = visitorData ? { client: { ...CONTEXT.client, visitorData } } : CONTEXT;
+  const mkHeaders = (ua, origin) => {
+    const h = { 'Content-Type': 'application/json', 'User-Agent': ua, Origin: origin };
+    if (visitorData) h['X-Goog-Visitor-Id'] = visitorData;
+    return h;
+  };
   const attempts = [
-    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: ANDROID_CTX, headers: { 'Content-Type': 'application/json', 'User-Agent': 'com.google.android.youtube/20.13.41 (Linux; U; Android 13; en_US)', Origin: 'https://www.youtube.com' } },
-    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: IOS_CTX, headers: { 'Content-Type': 'application/json', 'User-Agent': 'com.google.ios.youtube/20.13.41 (iPhone16,2; U; CPU iPhone OS 17_5 like Mac OS X)', Origin: 'https://www.youtube.com' } },
-    { url: `${YTM}/player`, ctx: WEB_CTX, headers: HEADERS },
+    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: ANDROID_CTX, headers: mkHeaders('com.google.android.youtube/20.13.41 (Linux; U; Android 13; en_US)', 'https://www.youtube.com') },
+    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: IOS_CTX, headers: mkHeaders('com.google.ios.youtube/20.13.41 (iPhone16,2; U; CPU iPhone OS 17_5 like Mac OS X)', 'https://www.youtube.com') },
+    { url: `${YTM}/player`, ctx: WEB_CTX, headers: visitorData ? { ...HEADERS, 'X-Goog-Visitor-Id': visitorData } : HEADERS },
   ];
   let lastErr = null;
+  let lastStatus = null;
   for (const a of attempts) {
     try {
       const r = await fetch(`${a.url}?prettyPrint=false`, {
         method: 'POST',
         headers: a.headers,
-        body: JSON.stringify({ context: a.ctx, videoId, playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } } }),
+        body: JSON.stringify({ context: a.ctx, videoId, playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } }, racyCheckOk: true, contentCheckOk: true }),
       });
       if (!r.ok) throw new Error(`player ${r.status}`);
       const j = await r.json();
-      if (j.playabilityStatus && j.playabilityStatus.status !== 'OK' && j.playabilityStatus.status !== 'UNPLAYABLE') {
+      lastStatus = j.playabilityStatus ? j.playabilityStatus.status : null;
+      if (j.playabilityStatus && j.playabilityStatus.status !== 'OK') {
         lastErr = j.playabilityStatus.reason || j.playabilityStatus.status;
+        if (lastStatus === 'ERROR' && /unavailable/i.test(lastErr)) continue;
       }
       const u = extractAudioUrl(j);
       if (u) return u;
-      lastErr = j.playabilityStatus ? j.playabilityStatus.reason : 'no url';
+      lastErr = j.playabilityStatus ? (j.playabilityStatus.reason || 'no url') : 'no url';
     } catch (e) { lastErr = e.message; }
   }
-  throw new Error(lastErr || 'no audio url');
+  const err = new Error(lastErr || 'no audio url');
+  err.playStatus = lastStatus;
+  throw err;
 }
 
 /* ---------------- deep helpers ---------------- */
@@ -329,7 +355,9 @@ app.get('/api/audio', async (req, res) => {
     const url = await getAudioUrl(videoId);
     res.json({ url });
   } catch (e) {
-    res.status(502).json({ error: e.message || 'failed to get audio' });
+    const msg = e.message || 'failed to get audio';
+    const status = e.playStatus === 'ERROR' || /unavailable/i.test(msg) ? 404 : 502;
+    res.status(status).json({ error: msg });
   }
 });
 
