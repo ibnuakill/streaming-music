@@ -1,0 +1,10 @@
+flutter_native_splash:
+  color: "#0B0B1A"
+  image: assets/musera-logo.png
+  android_12:
+    color: "#0B0B1A"
+    image: assets/musera-logo.png
+    icon_background_color: "#0B0B1A"
+  android: true
+  ios: true
+  web: false
