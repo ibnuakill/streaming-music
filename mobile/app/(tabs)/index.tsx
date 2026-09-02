@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { FlatList, Text, View, Image, Pressable, ScrollView, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { ytApi } from '../../src/api/yt';
 import { usePlayer } from '../../src/store/player';
 import { useLibrary } from '../../src/store/library';
+import { useAuth } from '../../src/store/auth';
 import { useRouter } from 'expo-router';
 
 function Section({ title, items, onPressItem }: any) {
@@ -40,6 +42,8 @@ export default function Home() {
   const history = useLibrary((s) => s.history);
   const favorites = useLibrary((s) => s.favorites);
   const stats = useLibrary((s) => s.stats);
+  const profile = useAuth((s) => s.profile);
+  const user = useAuth((s) => s.user);
 
   const topHistory = history.slice(0, 10);
   const lastPlayed = history[0];
@@ -79,10 +83,15 @@ export default function Home() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 80 }}>
-      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}>
-        <Text style={{ color: '#1DB954', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>MUSERA</Text>
-        <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 2 }}>{greeting}</Text>
-        <Text style={{ color: '#999', fontSize: 12, marginTop: 2 }}>Rekomendasi khusus untuk kamu</Text>
+      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: '#1DB954', fontSize: 12, fontWeight: '700', letterSpacing: 1 }}>MUSERA</Text>
+          <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 2 }}>{greeting}</Text>
+          <Text style={{ color: '#999', fontSize: 12, marginTop: 2 }}>Rekomendasi khusus untuk kamu</Text>
+        </View>
+        <Pressable onPress={() => router.push('/(tabs)/profile' as any)} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: '#1DB954', overflow: 'hidden', justifyContent: 'center', alignItems: 'center', marginLeft: 12, borderWidth: 2, borderColor: '#222' }}>
+          {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={{ width: 38, height: 38 }} /> : user ? <Text style={{ color: '#000', fontWeight: '800', fontSize: 16 }}>{(profile?.display_name || user?.email || 'U')[0].toUpperCase()}</Text> : <Feather name="user" size={18} color="#000" />}
+        </Pressable>
       </View>
 
       {topHistory.length > 0 && (

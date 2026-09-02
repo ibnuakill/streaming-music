@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "2c834c5b-c449-459b-9288-087937dc9de8"
+      }
+    },
+    "android": {
+      "package": "com.ibnuakillsteam.richmusic"
+    }
+  }
+}

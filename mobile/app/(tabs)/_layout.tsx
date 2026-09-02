@@ -19,6 +19,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: ({ color, size }) => <Feather name="search" size={size} color={color} /> }} />
       <Tabs.Screen name="charts" options={{ title: 'Charts', tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} /> }} />
       <Tabs.Screen name="library" options={{ title: 'Library', tabBarIcon: ({ color, size }) => <Feather name="music" size={size} color={color} /> }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Feather name="user" size={size} color={color} /> }} />
       </Tabs>
       <MiniPlayer />
     </View>

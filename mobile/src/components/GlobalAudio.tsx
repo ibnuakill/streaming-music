@@ -30,10 +30,18 @@ export default function GlobalAudio() {
     usePlayer.setState({
       seekTo: async (sec: number) => {
         if (soundRef.current) {
-          try { await soundRef.current.setPositionAsync(sec * 1000); } catch {}
+          try {
+            const wasPlaying = usePlayer.getState().isPlaying;
+            await soundRef.current.setPositionAsync(sec * 1000);
+            usePlayer.setState({ position: sec });
+            if (wasPlaying) await soundRef.current.playAsync().catch(() => {});
+          } catch {}
         }
       },
     });
+    try {
+      const { Notifications } = require('expo-notifications') as any;
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -73,7 +81,13 @@ export default function GlobalAudio() {
               if ((status as any).error) usePlayer.setState({ error: (status as any).error, isLoading: false });
               return;
             }
-            usePlayer.setState({ position: (status.positionMillis || 0) / 1000, duration: (status.durationMillis || 0) / 1000, isLoading: false });
+            const pos = (status.positionMillis || 0) / 1000;
+            const dur = (status.durationMillis || 0) / 1000;
+            if (dur > 0) {
+              usePlayer.setState({ position: pos, duration: dur, isLoading: false });
+            } else {
+              usePlayer.setState({ position: pos, isLoading: false });
+            }
             if ((status as any).didJustFinish) {
               const state = usePlayer.getState();
               if (state.repeat === 2) {
@@ -102,6 +116,29 @@ export default function GlobalAudio() {
   useEffect(() => {
     if (restart) soundRef.current?.setPositionAsync(0).then(() => soundRef.current?.playAsync()).catch(() => {});
   }, [restart]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    const id = setInterval(async () => {
+      const s = soundRef.current;
+      if (!s) return;
+      try {
+        const st: any = await s.getStatusAsync();
+        if (!st.isLoaded) return;
+        const pos = (st.positionMillis || 0) / 1000;
+        const dur = (st.durationMillis || 0) / 1000;
+        const curDur = usePlayer.getState().duration;
+        if (dur > 0 && Math.abs(dur - curDur) > 0.5) usePlayer.setState({ position: pos, duration: dur, isLoading: false });
+        else usePlayer.setState({ position: pos, isLoading: false });
+        if (st.didJustFinish) {
+          const rep = usePlayer.getState().repeat;
+          if (rep === 2) s.setPositionAsync(0).then(() => s.playAsync()).catch(() => {});
+          else nextTrack();
+        }
+      } catch {}
+    }, 500);
+    return () => clearInterval(id);
+  }, [isPlaying]);
 
   useEffect(() => {
     const s = soundRef.current;

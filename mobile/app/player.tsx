@@ -49,7 +49,9 @@ export default function PlayerScreen() {
   const addToPlaylist = useLibrary((s) => s.addToPlaylist);
   const [showLyrics, setShowLyrics] = useState(false);
   const [plModal, setPlModal] = useState(false);
-  const [showQueue, setShowQueue] = useState(false);
+  const [showQueue, setShowQueue] = useState(true);
+  const [seeking, setSeeking] = useState(false);
+  const [seekVal, setSeekVal] = useState(0);
 
   const { data: nextData } = useQuery({
     queryKey: ['next', song?.videoId],
@@ -65,7 +67,9 @@ export default function PlayerScreen() {
   });
   const hasLyrics = !!(lyrics?.synced || lyrics?.plain);
   const lyricsText = lyrics?.synced ? lyrics.synced.replace(/\[.*?\]/g, '').trim() : (lyrics?.plain || '').trim();
-  const effDuration = duration || durationSec || 1;
+  const effDuration = duration > 0 ? duration : (durationSec > 0 ? durationSec : 0);
+  const sliderMax = effDuration > 0 ? effDuration : 100;
+  const sliderVal = effDuration > 0 ? Math.min(position, effDuration) : position;
 
   if (!song) return <View style={[styles.center, { paddingTop: insets.top }]}><Text style={{ color: '#fff' }}>No song</Text></View>;
 
@@ -102,16 +106,19 @@ export default function PlayerScreen() {
           <Slider
             style={{ width: '100%', height: 28 }}
             minimumValue={0}
-            maximumValue={effDuration}
-            value={Math.min(position, effDuration)}
-            onSlidingComplete={(v) => seekTo?.(v)}
+            maximumValue={sliderMax}
+            value={seeking ? seekVal : sliderVal}
+            onSlidingStart={(v) => { setSeeking(true); setSeekVal(v); }}
+            onValueChange={(v) => { if (seeking) setSeekVal(v); }}
+            onSlidingComplete={(v) => { setSeeking(false); seekTo?.(v); }}
             minimumTrackTintColor="#fff"
             maximumTrackTintColor="rgba(255,255,255,0.3)"
             thumbTintColor="#fff"
+            disabled={effDuration === 0}
           />
           <View style={styles.timeRow}>
-            <Text style={styles.time}>{fmt(position)}</Text>
-            <Text style={styles.time}>-{fmt(Math.max(0, effDuration - position))}</Text>
+            <Text style={styles.time}>{fmt(seeking ? seekVal : position)}</Text>
+            <Text style={styles.time}>{effDuration > 0 ? fmt(effDuration) : '--:--'}</Text>
           </View>
         </View>
 
@@ -149,22 +156,24 @@ export default function PlayerScreen() {
           </View>
         )}
 
-        {showQueue && queue.length > 0 && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Antrian • {queue.length}</Text>
-            {queue.slice(index + 1, index + 6).map((q: any, i: number) => (
+        <View style={styles.card}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.cardTitle}>Antrian • {queue.length > 1 ? queue.length - index - 1 : 0} berikutnya</Text>
+            <Pressable onPress={() => setShowQueue(!showQueue)}><Feather name={showQueue ? 'chevron-up' : 'chevron-down'} size={18} color="#fff" /></Pressable>
+          </View>
+          {showQueue ? (
+            queue.length > 1 ? queue.slice(index + 1, index + 11).map((q: any, i: number) => (
               <Pressable key={q.videoId + i} onPress={() => playSong(q, queue, index + 1 + i)} style={styles.qRow}>
                 <Image source={{ uri: q.thumbnail || undefined }} style={styles.qArt} />
                 <View style={{ flex: 1, marginLeft: 10 }}>
-                  <Text style={{ color: q.videoId === song.videoId ? '#1DB954' : '#fff', fontSize: 13 }} numberOfLines={1}>{q.title}</Text>
-                  <Text style={styles.muted}>{q.artist}</Text>
+                  <Text style={{ color: '#fff', fontSize: 13 }} numberOfLines={1}>{q.title}</Text>
+                  <Text style={styles.muted} numberOfLines={1}>{q.artist} {q.duration ? `• ${q.duration}` : ''}</Text>
                 </View>
-                <Feather name="play-circle" size={16} color="#1DB954" />
+                <Feather name="play" size={14} color="#1DB954" />
               </Pressable>
-            ))}
-            {queue.length <= 1 && <Text style={styles.muted}>Auto-radio akan isi antrian berikutnya</Text>}
-          </View>
-        )}
+            )) : <Text style={styles.muted}>Putar lagu — antrian radio otomatis akan muncul di sini</Text>
+          ) : <Text style={styles.muted}>Tap ▲ untuk lihat antrian</Text>}
+        </View>
 
         {showLyrics && (
           <View style={styles.card}>
