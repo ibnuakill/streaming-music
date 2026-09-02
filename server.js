@@ -101,11 +101,27 @@ async function getAudioUrl(videoId) {
       if (j.playabilityStatus && j.playabilityStatus.status !== 'OK') {
         lastErr = j.playabilityStatus.reason || j.playabilityStatus.status;
         if (lastStatus === 'ERROR' && /unavailable/i.test(lastErr)) continue;
+        if (/bot|sign in/i.test(lastErr)) continue;
       }
       const u = extractAudioUrl(j);
       if (u) return u;
       lastErr = j.playabilityStatus ? (j.playabilityStatus.reason || 'no url') : 'no url';
     } catch (e) { lastErr = e.message; }
+  }
+  if (lastErr && /bot|sign in|login/i.test(lastErr)) {
+    try {
+      const startUrl = `https://loader.to/ajax/download.php?format=mp3&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
+      const sr = await fetch(startUrl, { headers: { 'User-Agent': 'Mozilla/5.0', Referer: 'https://loader.to/' } });
+      const sj = await sr.json();
+      if (sj.success && sj.progress_url) {
+        for (let i = 0; i < 8; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const pr = await fetch(sj.progress_url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          const pj = await pr.json();
+          if (pj.success && pj.download_url) return pj.download_url;
+        }
+      }
+    } catch {}
   }
   const err = new Error(lastErr || 'no audio url');
   err.playStatus = lastStatus;
