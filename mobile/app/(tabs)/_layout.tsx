@@ -1,9 +1,12 @@
 import { Tabs } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
+import { View } from 'react-native';
+import MiniPlayer from '../../src/components/MiniPlayer';
 
 export default function TabsLayout() {
   return (
-    <Tabs
+    <View style={{ flex: 1 }}>
+      <Tabs
       screenOptions={{
         headerStyle: { backgroundColor: '#000' },
         headerTintColor: '#fff',
@@ -16,6 +19,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="search" options={{ title: 'Search', tabBarIcon: ({ color, size }) => <Feather name="search" size={size} color={color} /> }} />
       <Tabs.Screen name="charts" options={{ title: 'Charts', tabBarIcon: ({ color, size }) => <Feather name="bar-chart-2" size={size} color={color} /> }} />
       <Tabs.Screen name="library" options={{ title: 'Library', tabBarIcon: ({ color, size }) => <Feather name="music" size={size} color={color} /> }} />
-    </Tabs>
+      </Tabs>
+      <MiniPlayer />
+    </View>
   );
 }

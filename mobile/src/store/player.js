@@ -23,9 +23,9 @@ export const usePlayer = create((set, get) => ({
     if (queue) {
       let idx = index ?? queue.findIndex((q) => q.videoId === song.videoId);
       if (!Number.isFinite(idx) || idx < 0) idx = 0;
-      set({ queue: queue.map((q) => ({ ...q, _user: false })), index: idx, current: queue[idx] });
+      set({ queue: queue.map((q) => ({ ...q, _user: false })), index: idx, current: queue[idx], isPlaying: true });
     } else {
-      set({ queue: [{ ...song, _user: false }], index: 0, current: song });
+      set({ queue: [{ ...song, _user: false }], index: 0, current: song, isPlaying: true });
     }
   },
 
@@ -63,12 +63,13 @@ export const usePlayer = create((set, get) => ({
         if (s.repeat === 1) ni = 0;
         else return s;
       }
-      return { index: ni, current: s.queue[ni] };
+      return { index: ni, current: s.queue[ni], isPlaying: true };
     }),
 
   prevTrack: () =>
     set((s) => {
-      if (s.index > 0) return { index: s.index - 1, current: s.queue[s.index - 1] };
+      if (s.index > 0) return { index: s.index - 1, current: s.queue[s.index - 1], isPlaying: true };
+      if (s.queue[s.index]) return { index: s.index, current: s.queue[s.index], isPlaying: true, _restart: Date.now() };
       return s;
     }),
 
@@ -86,4 +87,16 @@ export const usePlayer = create((set, get) => ({
   toggleRepeat: () => set((s) => ({ repeat: (s.repeat + 1) % 3 })),
   setSpeed: (v) => set({ speed: v }),
   setHq: (v) => set({ hq: v }),
+  isPlaying: false,
+  setPlaying: (v) => set({ isPlaying: !!v }),
+  togglePlaying: () => set((s) => ({ isPlaying: !s.isPlaying })),
+  position: 0,
+  duration: 0,
+  isLoading: false,
+  error: null,
+  setPosition: (v) => set({ position: v }),
+  setDuration: (v) => set({ duration: v }),
+  setLoading: (v) => set({ isLoading: !!v }),
+  setError: (v) => set({ error: v }),
+  seekTo: null,
 }));

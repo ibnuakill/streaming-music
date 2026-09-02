@@ -1,238 +1,180 @@
-import { useEffect, useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, ScrollView, Alert, StyleSheet, Dimensions } from 'react-native';
-import { Audio } from 'expo-av';
-import { Feather } from '@expo/vector-icons';
+import { useState } from 'react';
+import { View, Text, Image, Pressable, ScrollView, StyleSheet, Dimensions } from 'react-native';
+import Slider from '@react-native-community/slider';
+import { Feather, MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { usePlayer } from '../src/store/player';
 import { useLibrary } from '../src/store/library';
-import * as FileSystem from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
 import { ytApi } from '../src/api/yt';
 import { useQuery } from '@tanstack/react-query';
 
-const { width: WW } = Dimensions.get('window');
-const PLAYER_HEIGHT = 220;
+const W = Dimensions.get('window').width;
+function parseDuration(s: string): number {
+  if (!s) return 0;
+  const parts = String(s).trim().split(':').map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+function fmt(s: number) {
+  s = Math.max(0, Math.floor(s));
+  const m = Math.floor(s / 60), sec = s % 60;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { queue, index, current } = usePlayer();
   const song = queue[index] || current;
-  const playSong = usePlayer((s) => s.playSong);
   const nextTrack = usePlayer((s) => s.nextTrack);
   const prevTrack = usePlayer((s) => s.prevTrack);
+  const isPlaying = usePlayer((s) => s.isPlaying);
+  const togglePlaying = usePlayer((s) => s.togglePlaying);
+  const shuffle = usePlayer((s) => s.shuffle);
+  const repeat = usePlayer((s) => s.repeat);
+  const toggleShuffle = usePlayer((s) => s.toggleShuffle);
+  const toggleRepeat = usePlayer((s) => s.toggleRepeat);
+  const position = usePlayer((s) => s.position);
+  const duration = usePlayer((s) => s.duration);
+  const isLoading = usePlayer((s) => s.isLoading);
+  const error = usePlayer((s) => s.error);
+  const seekTo = usePlayer((s) => s.seekTo as any);
+  const playSong = usePlayer((s) => s.playSong);
   const toggleFav = useLibrary((s) => s.toggleFav);
   const isFav = useLibrary((s) => s.isFav(song?.videoId));
-  const [playing, setPlaying] = useState(true);
-  const [downloading, setDownloading] = useState(false);
-  const [ytError, setYtError] = useState<string | null>(null);
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const playlists = useLibrary((s) => s.playlists);
+  const addToPlaylist = useLibrary((s) => s.addToPlaylist);
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [plModal, setPlModal] = useState(false);
+  const [showQueue, setShowQueue] = useState(false);
 
-  // Set up audio mode for background playback
-  useEffect(() => {
-    Audio.setAudioModeAsync({
-      staysActiveInBackground: true,
-      playsInSilentModeIOS: true,
-      allowsRecordingIOS: false,
-      interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
-      interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    });
-  }, []);
-
-  // Reset play state when song changes – fixes silent next track
-  useEffect(() => {
-    if (song?.videoId) {
-      setPlaying(true);
-      setYtError(null);
-    }
-  }, [song?.videoId]);
-
-  // Fetch next queue + lyrics
   const { data: nextData } = useQuery({
     queryKey: ['next', song?.videoId],
     queryFn: () => ytApi.next(song.videoId),
     enabled: !!song?.videoId,
   });
-
-  const { data: lyrics } = useQuery({
-    queryKey: ['lyrics', song?.title, song?.artist],
-    queryFn: () => ytApi.lyrics(song.title, song.artist || '', 0, nextData?.lyricsBrowseId || ''),
-    enabled: !!song?.title,
+  const durationSec = parseDuration(song?.duration || '');
+  const { data: lyrics, isFetching: lyricsLoading } = useQuery({
+    queryKey: ['lyrics', song?.videoId, song?.title, song?.artist, durationSec, nextData?.lyricsBrowseId],
+    queryFn: () => ytApi.lyrics(song.title, song.artist || '', durationSec, nextData?.lyricsBrowseId || ''),
+    enabled: !!song?.videoId && !!song?.title,
+    staleTime: 1000 * 60 * 10,
   });
+  const hasLyrics = !!(lyrics?.synced || lyrics?.plain);
+  const lyricsText = lyrics?.synced ? lyrics.synced.replace(/\[.*?\]/g, '').trim() : (lyrics?.plain || '').trim();
+  const effDuration = duration || durationSec || 1;
 
-  // Fetch audio URL when song changes
-  useEffect(() => {
-    if (!song?.videoId) return;
-    let isCancelled = false;
-    
-    const fetchAudio = async () => {
-      try {
-        setYtError(null);
-        setAudioUrl(null);
-        const { url } = await ytApi.audio(song.videoId);
-        if (!isCancelled) {
-          if (!url) throw new Error('no url');
-          setAudioUrl(url);
-        }
-      } catch (e: any) {
-        if (!isCancelled) {
-          setYtError(e?.message || 'Failed to fetch audio URL');
-        }
-      }
-    };
-    
-    fetchAudio();
-    return () => { isCancelled = true; };
-  }, [song?.videoId]);
-
-  // Load and play audio when URL changes
-  useEffect(() => {
-    if (!audioUrl) return;
-    let isCancelled = false;
-    
-    const loadAudio = async () => {
-      try {
-        // Unload previous sound
-        if (sound) {
-          await sound.unloadAsync();
-        }
-        
-        const { sound: newSound } = await Audio.Sound.createAsync(
-          { uri: audioUrl },
-          { shouldPlay: playing, isLooping: false }
-        );
-        
-        if (!isCancelled) {
-          setSound(newSound);
-        } else {
-          await newSound.unloadAsync();
-        }
-      } catch (e: any) {
-        if (!isCancelled) {
-          setYtError('Failed to load audio');
-        }
-      }
-    };
-    
-    loadAudio();
-    return () => { isCancelled = true; };
-  }, [audioUrl]);
-
-  // Cleanup sound on unmount
-  useEffect(() => {
-    return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
-  }, []);
-
-  const onStateChange = useCallback((state: string) => {
-    if (state === 'ended') nextTrack();
-    if (state === 'playing') setPlaying(true);
-    if (state === 'paused') setPlaying(false);
-    if (state === 'unstarted') setPlaying(true);
-  }, [nextTrack]);
-
-  const handlePlayPause = async () => {
-    if (!sound) return;
-    
-    try {
-      const status = await sound.getStatusAsync();
-      if (status.isPlaying) {
-        await sound.pauseAsync();
-        setPlaying(false);
-      } else {
-        await sound.playAsync();
-        setPlaying(true);
-      }
-    } catch (e: any) {
-      setYtError('Playback error');
-    }
-  };
-
-  const handleDownload = async () => {
-    if (!song?.videoId || downloading) return;
-    setDownloading(true);
-    try {
-      const perm = await MediaLibrary.requestPermissionsAsync();
-      if (!perm.granted) throw new Error('Permission denied');
-      const start = await ytApi.downloadStart(song.videoId);
-      if (!start.progressUrl) throw new Error('No progress url');
-      let url: string | null = null;
-      for (let i = 0; i < 60; i++) {
-        if (i) await new Promise((r) => setTimeout(r, 2500));
-        const p = await ytApi.downloadProgress(start.progressUrl);
-        if (p.done && p.url) { url = p.url; break; }
-      }
-      if (!url) throw new Error('Timeout');
-      const filename = `${(song.artist || 'track').replace(/[/\\?%*:|"<>]/g, '')} - ${song.title.replace(/[/\\?%*:|"<>]/g, '')}.mp3`.slice(0, 80);
-      const fileUri = FileSystem.documentDirectory + filename;
-      const { uri } = await FileSystem.downloadAsync(url, fileUri);
-      await MediaLibrary.createAssetAsync(uri);
-      Alert.alert('Downloaded', filename);
-    } catch (e: any) {
-      Alert.alert('Download failed', e.message);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  if (!song) return <View style={[styles.center, { paddingTop: insets.top }]}><Text style={{ color: '#fff' }}>No song – play from Home/Search</Text></View>;
+  if (!song) return <View style={[styles.center, { paddingTop: insets.top }]}><Text style={{ color: '#fff' }}>No song</Text></View>;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
-        {/* Audio player – no YouTube iframe */}
-        <View style={styles.playerWrap}>
+    <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <Pressable onPress={() => router.back()} style={styles.hBtn}><Feather name="chevron-down" size={24} color="#fff" /></Pressable>
+        <View style={{ alignItems: 'center' }}>
+          <Text style={styles.hTop}>PLAYING FROM PLAYLIST</Text>
+          <Text style={styles.hTitle} numberOfLines={1}>{queue.length > 1 ? `Antrian • ${queue.length}` : 'Musera'}</Text>
+        </View>
+        <Pressable onPress={() => setShowQueue(!showQueue)} style={styles.hBtn}><Feather name="more-vertical" size={20} color="#fff" /></Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 24 }]} showsVerticalScrollIndicator={false}>
+        <View style={styles.artWrap}>
           <Image source={{ uri: song.thumbnail || undefined }} style={styles.art} />
+          {isLoading && <View style={styles.loading}><Text style={{ color: '#fff', fontWeight: '700' }}>● Loading</Text></View>}
         </View>
 
-        {ytError && (
-          <View style={styles.errorBox}><Text style={styles.errorText}>⚠️ {ytError}</Text></View>
-        )}
-
-        <Text style={styles.title}>{song.title}</Text>
-        <Text style={styles.artist}>{song.artist}</Text>
-
-        <View style={styles.controlsRow}>
-          <Pressable onPress={prevTrack} style={styles.ctrlBtn}><Feather name="skip-back" size={22} color="#fff" /></Pressable>
-          <Pressable onPress={handlePlayPause} style={styles.playBtn}><Feather name={playing ? 'pause' : 'play'} size={24} color="#000" /></Pressable>
-          <Pressable onPress={nextTrack} style={styles.ctrlBtn}><Feather name="skip-forward" size={22} color="#fff" /></Pressable>
+        <View style={styles.infoRow}>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={styles.title} numberOfLines={1}>{song.title}</Text>
+            <Text style={styles.artist} numberOfLines={1}>{song.artist}</Text>
+          </View>
+          <Pressable onPress={() => toggleFav(song)} hitSlop={10}>
+            <Feather name="heart" size={22} color={isFav ? '#1DB954' : '#fff'} style={isFav ? { opacity: 1 } : { opacity: 0.9 }} />
+          </Pressable>
         </View>
 
-        <View style={styles.actionsRow}>
-          <Pressable onPress={() => toggleFav(song)} style={[styles.pill, isFav && styles.pillActive]}><Feather name="heart" size={16} color={isFav ? '#000' : '#fff'} /><Text style={[styles.pillText, isFav && styles.pillTextActive]}>{isFav ? 'Favorited' : 'Favorite'}</Text></Pressable>
-          <Pressable onPress={handleDownload} disabled={downloading} style={[styles.pill, downloading && { opacity: 0.5 }]}><Feather name="download" size={16} color="#fff" /><Text style={styles.pillText}>{downloading ? 'Downloading…' : 'Download MP3'}</Text></Pressable>
+        {error && <Text style={styles.error}>⚠️ {error}</Text>}
+
+        <View style={styles.progressWrap}>
+          <Slider
+            style={{ width: '100%', height: 28 }}
+            minimumValue={0}
+            maximumValue={effDuration}
+            value={Math.min(position, effDuration)}
+            onSlidingComplete={(v) => seekTo?.(v)}
+            minimumTrackTintColor="#fff"
+            maximumTrackTintColor="rgba(255,255,255,0.3)"
+            thumbTintColor="#fff"
+          />
+          <View style={styles.timeRow}>
+            <Text style={styles.time}>{fmt(position)}</Text>
+            <Text style={styles.time}>-{fmt(Math.max(0, effDuration - position))}</Text>
+          </View>
         </View>
 
-        {queue.length > 1 && (
-          <View style={{ width: '100%', marginTop: 24 }}>
-            <Text style={{ color: '#fff', fontWeight: '700', marginBottom: 8 }}>Queue ({queue.length})</Text>
-            {queue.slice(index + 1, index + 6).map((q: any, i: number) => (
-              <Pressable key={q.videoId + i} onPress={() => playSong(q, queue, index + 1 + i)} style={{ flexDirection: 'row', paddingVertical: 6, alignItems: 'center' }}>
-                <Image source={{ uri: q.thumbnail || undefined }} style={{ width: 44, height: 44, borderRadius: 4, backgroundColor: '#222' }} />
-                <View style={{ flex: 1, marginLeft: 8 }}>
-                  <Text style={{ color: '#fff', fontSize: 13 }} numberOfLines={1}>{q.title}</Text>
-                  <Text style={{ color: '#999', fontSize: 11 }}>{q.artist}</Text>
-                </View>
+        <View style={styles.controls}>
+          <Pressable onPress={toggleShuffle} style={[styles.cSmall, shuffle && styles.cActive]}>
+            <MaterialIcons name="shuffle" size={20} color={shuffle ? '#1DB954' : '#fff'} />
+          </Pressable>
+          <Pressable onPress={prevTrack} style={styles.cMid}><Feather name="skip-back" size={28} color="#fff" /></Pressable>
+          <Pressable onPress={togglePlaying} style={styles.playBtn}>
+            <Feather name={isPlaying ? 'pause' : 'play'} size={32} color="#000" style={isPlaying ? {} : { marginLeft: 3 }} />
+          </Pressable>
+          <Pressable onPress={nextTrack} style={styles.cMid}><Feather name="skip-forward" size={28} color="#fff" /></Pressable>
+          <Pressable onPress={toggleRepeat} style={[styles.cSmall, repeat !== 0 && styles.cActive]}>
+            <MaterialIcons name={repeat === 2 ? 'repeat-one' : 'repeat'} size={20} color={repeat !== 0 ? '#1DB954' : '#fff'} />
+          </Pressable>
+        </View>
+
+        <View style={styles.bottomBar}>
+          <Pressable onPress={() => setPlModal(true)} style={styles.bBtn}><Feather name="plus-circle" size={18} color="#fff" /><Text style={styles.bText}>Playlist</Text></Pressable>
+          <Pressable onPress={() => setShowLyrics(!showLyrics)} style={[styles.bBtn, showLyrics && { backgroundColor: '#1DB954' }]}>
+            <Feather name="align-left" size={16} color={showLyrics ? '#000' : '#fff'} /><Text style={[styles.bText, showLyrics && { color: '#000' }]}>Lirik</Text>
+          </Pressable>
+          <Pressable onPress={() => setShowQueue(!showQueue)} style={styles.bBtn}><Feather name="list" size={18} color="#fff" /><Text style={styles.bText}>Antrian</Text></Pressable>
+        </View>
+
+        {plModal && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Tambah ke playlist</Text>
+            {playlists.length === 0 ? <Text style={styles.muted}>Belum ada playlist — buat di Library</Text> : playlists.map((pl: any) => (
+              <Pressable key={pl.id} onPress={async () => { await addToPlaylist(pl.id, song); setPlModal(false); }} style={styles.plRow}>
+                <Text style={{ color: '#fff', fontWeight: '600' }}>{pl.name}</Text><Text style={styles.muted}>{pl.tracks.length} lagu</Text>
               </Pressable>
             ))}
+            <Pressable onPress={() => setPlModal(false)} style={styles.closeBtn}><Text style={{ color: '#fff', fontWeight: '700' }}>Tutup</Text></Pressable>
           </View>
         )}
 
-        <View style={{ width: '100%', marginTop: 24 }}>
-          <Text style={{ color: '#fff', fontWeight: '700', marginBottom: 8 }}>Lyrics {lyrics?.source ? `· ${lyrics.source}` : ''}</Text>
-          {lyrics?.synced ? (
-            <Text style={{ color: '#ccc', lineHeight: 22 }}>{lyrics.synced.replace(/\[.*?\]/g, '').slice(0, 2000)}</Text>
-          ) : lyrics?.plain ? (
-            <Text style={{ color: '#ccc', lineHeight: 22 }}>{lyrics.plain.slice(0, 2000)}</Text>
-          ) : (
-            <Text style={{ color: '#666' }}>{lyrics ? 'No lyrics found' : 'Loading lyrics…'}</Text>
-          )}
-        </View>
+        {showQueue && queue.length > 0 && (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Antrian • {queue.length}</Text>
+            {queue.slice(index + 1, index + 6).map((q: any, i: number) => (
+              <Pressable key={q.videoId + i} onPress={() => playSong(q, queue, index + 1 + i)} style={styles.qRow}>
+                <Image source={{ uri: q.thumbnail || undefined }} style={styles.qArt} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={{ color: q.videoId === song.videoId ? '#1DB954' : '#fff', fontSize: 13 }} numberOfLines={1}>{q.title}</Text>
+                  <Text style={styles.muted}>{q.artist}</Text>
+                </View>
+                <Feather name="play-circle" size={16} color="#1DB954" />
+              </Pressable>
+            ))}
+            {queue.length <= 1 && <Text style={styles.muted}>Auto-radio akan isi antrian berikutnya</Text>}
+          </View>
+        )}
+
+        {showLyrics && (
+          <View style={styles.card}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={styles.cardTitle}>Lirik {lyrics?.source ? `· ${lyrics.source}` : ''}</Text>
+              {hasLyrics && <Text style={styles.badge}>{lyrics.synced ? 'Synced' : 'Plain'}</Text>}
+            </View>
+            {lyricsLoading ? <Text style={styles.muted}>Mencari lirik…</Text> : hasLyrics ? <Text style={styles.lyrics}>{lyricsText.slice(0, 4000)}</Text> : <Text style={styles.muted}>Lirik tidak ditemukan.</Text>}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -241,19 +183,36 @@ export default function PlayerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  playerWrap: { borderRadius: 12, overflow: 'hidden', marginBottom: 16, alignSelf: 'center', backgroundColor: '#111' },
-  scrollContent: { padding: 16, alignItems: 'center', flexGrow: 1 },
-  art: { borderRadius: 12, backgroundColor: '#222', aspectRatio: 1 },
-  title: { color: '#fff', fontSize: 20, fontWeight: '800', marginTop: 16, textAlign: 'center' },
-  artist: { color: '#999', marginTop: 6, textAlign: 'center' },
-  controlsRow: { flexDirection: 'row', marginTop: 20, alignItems: 'center', gap: 12 },
-  ctrlBtn: { backgroundColor: '#222', padding: 14, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  playBtn: { backgroundColor: '#1DB954', padding: 16, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
-  actionsRow: { flexDirection: 'row', marginTop: 16, flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#222', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
-  pillActive: { backgroundColor: '#1DB954' },
-  pillText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  pillTextActive: { color: '#000' },
-  errorBox: { backgroundColor: '#331111', padding: 8, margin: 12, borderRadius: 8 },
-  errorText: { color: '#ff8888', fontSize: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingBottom: 8 },
+  hBtn: { width: 36, height: 36, justifyContent: 'center', alignItems: 'center' },
+  hTop: { color: '#fff', fontSize: 10, letterSpacing: 1.2, fontWeight: '700', opacity: 0.8 },
+  hTitle: { color: '#fff', fontSize: 12, fontWeight: '700', maxWidth: W * 0.5, textAlign: 'center' },
+  scroll: { paddingHorizontal: 24, paddingTop: 8 },
+  artWrap: { width: W - 48, height: W - 48, borderRadius: 8, overflow: 'hidden', backgroundColor: '#111', alignSelf: 'center', marginTop: 12 },
+  art: { width: '100%', height: '100%', backgroundColor: '#222' },
+  loading: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', alignItems: 'center' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 22, width: '100%' },
+  title: { color: '#fff', fontSize: 21, fontWeight: '800', letterSpacing: -0.3 },
+  artist: { color: 'rgba(255,255,255,0.7)', marginTop: 4, fontSize: 15 },
+  error: { color: '#ff5555', marginTop: 8, fontSize: 12, alignSelf: 'flex-start' },
+  progressWrap: { width: '100%', marginTop: 14 },
+  timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -6 },
+  time: { color: 'rgba(255,255,255,0.6)', fontSize: 11 },
+  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginTop: 8, paddingHorizontal: 4 },
+  cSmall: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', opacity: 0.9 },
+  cMid: { padding: 6 },
+  cActive: { opacity: 1 },
+  playBtn: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' },
+  bottomBar: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginTop: 22, gap: 10 },
+  bBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.08)', paddingVertical: 10, borderRadius: 20 },
+  bText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  card: { width: '100%', marginTop: 16, backgroundColor: '#121212', borderRadius: 12, padding: 14 },
+  cardTitle: { color: '#fff', fontWeight: '800', marginBottom: 8 },
+  muted: { color: '#777', fontSize: 12 },
+  badge: { color: '#1DB954', fontSize: 11, fontWeight: '800', backgroundColor: 'rgba(29,185,84,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, overflow: 'hidden' },
+  lyrics: { color: '#e6e6e6', lineHeight: 22, fontSize: 14 },
+  plRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#222' },
+  closeBtn: { alignSelf: 'center', marginTop: 10, backgroundColor: '#222', paddingHorizontal: 18, paddingVertical: 8, borderRadius: 20 },
+  qRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 7 },
+  qArt: { width: 48, height: 48, borderRadius: 4, backgroundColor: '#222' },
 });

@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { Audio } from 'expo-av';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useLibrary } from '../src/store/library';
+import GlobalAudio from '../src/components/GlobalAudio';
 
 const qc = new QueryClient();
 
@@ -25,6 +26,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={qc}>
+        <GlobalAudio />
         <StatusBar style="light" />
         <Stack
           screenOptions={{

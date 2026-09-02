@@ -44,7 +44,7 @@ export default function Search() {
           <Pressable
             onPress={() => {
               if (item.videoId) {
-                playSong({ videoId: item.videoId, title: item.title, artist: item.subtitle, thumbnail: item.thumbnail });
+                playSong({ videoId: item.videoId, title: item.title, artist: item.subtitle, thumbnail: item.thumbnail, duration: item.duration || '' });
                 router.push('/player');
               } else if (item.browseId) router.push(`/browse/${encodeURIComponent(item.browseId)}`);
             }}

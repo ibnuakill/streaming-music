@@ -32,7 +32,7 @@ export default function Browse() {
         <View style={{ paddingHorizontal: 12 }}>
           <Text style={{ color: '#fff', fontWeight: '700', marginBottom: 8 }}>Tracks</Text>
           {tracks.map((t: any, i: number) => (
-            <Pressable key={t.videoId + i} onPress={() => { playSong({ videoId: t.videoId, title: t.title, artist: t.artist || t.subtitle, thumbnail: t.thumbnail }, tracks, i); router.push('/player'); }} style={{ flexDirection: 'row', paddingVertical: 8, alignItems: 'center' }}>
+            <Pressable key={t.videoId + i} onPress={() => { playSong({ videoId: t.videoId, title: t.title, artist: t.artist || t.subtitle, thumbnail: t.thumbnail, duration: t.duration || '' }, tracks.map((x:any)=>({ ...x, artist: x.artist||x.subtitle })), i); router.push('/player'); }} style={{ flexDirection: 'row', paddingVertical: 8, alignItems: 'center' }}>
               <Text style={{ color: '#666', width: 24 }}>{i + 1}</Text>
               <Image source={{ uri: t.thumbnail || undefined }} style={{ width: 48, height: 48, borderRadius: 4, backgroundColor: '#222' }} />
               <View style={{ flex: 1, marginLeft: 10 }}>
