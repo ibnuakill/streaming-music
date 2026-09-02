@@ -53,16 +53,19 @@ function extractAudioUrl(data) {
   return withUrl[0].url;
 }
 
-let cachedVisitor = null;
-let visitorFetchedAt = 0;
+let cachedVisitor = 'CgtjbFU2cG9XNXVtNCjg597UBjIKCgJJRBIEGgAgDmLfAgrcAjIxLllUPUFrbnJrZW1QWElUdjF0dlFPWUlmcWRRNG5EdFc4WXZmUWdGOE9QOXJMX2c2ZUh5';
+let visitorFetchedAt = Date.now();
 async function getVisitorData() {
   if (cachedVisitor && Date.now() - visitorFetchedAt < 30 * 60 * 1000) return cachedVisitor;
-  try {
-    const r = await fetch('https://www.youtube.com/', { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const t = await r.text();
-    const m = t.match(/"visitorData":"([^"]+)"/);
-    if (m) { cachedVisitor = m[1]; visitorFetchedAt = Date.now(); return cachedVisitor; }
-  } catch {}
+  const urls = ['https://www.youtube.com/', 'https://m.youtube.com/', 'https://music.youtube.com/'];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'en-US,en;q=0.9' } });
+      const t = await r.text();
+      const m = t.match(/"visitorData":"([^"]+)"/);
+      if (m && m[1].length > 20) { cachedVisitor = m[1]; visitorFetchedAt = Date.now(); return cachedVisitor; }
+    } catch {}
+  }
   return cachedVisitor;
 }
 
