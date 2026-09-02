@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Text, Image, Pressable, ScrollView, ActivityIndicator, Alert, StyleSheet, Dimensions } from 'react-native';
-import YoutubePlayer from 'react-native-youtube-iframe';
+import { useEffect, useState, useCallback } from 'react';
+import { View, Text, Image, Pressable, ScrollView, Alert, StyleSheet, Dimensions } from 'react-native';
+import { Audio } from 'expo-av';
 import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { usePlayer } from '../src/store/player';
@@ -11,6 +11,7 @@ import { ytApi } from '../src/api/yt';
 import { useQuery } from '@tanstack/react-query';
 
 const { width: WW } = Dimensions.get('window');
+const PLAYER_HEIGHT = 220;
 
 export default function PlayerScreen() {
   const insets = useSafeAreaInsets();
@@ -24,6 +25,21 @@ export default function PlayerScreen() {
   const [playing, setPlaying] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [ytError, setYtError] = useState<string | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Set up audio mode for background playback
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      staysActiveInBackground: true,
+      playsInSilentModeIOS: true,
+      allowsRecordingIOS: false,
+      interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_MIX_WITH_OTHERS,
+      interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  }, []);
 
   // Reset play state when song changes – fixes silent next track
   useEffect(() => {
@@ -46,12 +62,96 @@ export default function PlayerScreen() {
     enabled: !!song?.title,
   });
 
+  // Fetch audio URL when song changes
+  useEffect(() => {
+    if (!song?.videoId) return;
+    let isCancelled = false;
+    
+    const fetchAudio = async () => {
+      try {
+        setYtError(null);
+        setAudioUrl(null);
+        const { url } = await ytApi.audio(song.videoId);
+        if (!isCancelled) {
+          if (!url) throw new Error('no url');
+          setAudioUrl(url);
+        }
+      } catch (e: any) {
+        if (!isCancelled) {
+          setYtError(e?.message || 'Failed to fetch audio URL');
+        }
+      }
+    };
+    
+    fetchAudio();
+    return () => { isCancelled = true; };
+  }, [song?.videoId]);
+
+  // Load and play audio when URL changes
+  useEffect(() => {
+    if (!audioUrl) return;
+    let isCancelled = false;
+    
+    const loadAudio = async () => {
+      try {
+        // Unload previous sound
+        if (sound) {
+          await sound.unloadAsync();
+        }
+        
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: audioUrl },
+          { shouldPlay: playing, isLooping: false }
+        );
+        
+        if (!isCancelled) {
+          setSound(newSound);
+        } else {
+          await newSound.unloadAsync();
+        }
+      } catch (e: any) {
+        if (!isCancelled) {
+          setYtError('Failed to load audio');
+        }
+      }
+    };
+    
+    loadAudio();
+    return () => { isCancelled = true; };
+  }, [audioUrl]);
+
+  // Cleanup sound on unmount
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, []);
+
   const onStateChange = useCallback((state: string) => {
     if (state === 'ended') nextTrack();
     if (state === 'playing') setPlaying(true);
     if (state === 'paused') setPlaying(false);
     if (state === 'unstarted') setPlaying(true);
   }, [nextTrack]);
+
+  const handlePlayPause = async () => {
+    if (!sound) return;
+    
+    try {
+      const status = await sound.getStatusAsync();
+      if (status.isPlaying) {
+        await sound.pauseAsync();
+        setPlaying(false);
+      } else {
+        await sound.playAsync();
+        setPlaying(true);
+      }
+    } catch (e: any) {
+      setYtError('Playback error');
+    }
+  };
 
   const handleDownload = async () => {
     if (!song?.videoId || downloading) return;
@@ -84,45 +184,22 @@ export default function PlayerScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* YouTube player – invisible but laid out (no height:0) */}
-      <View style={styles.hiddenPlayer}>
-        <YoutubePlayer
-          key={song.videoId}
-          height={220}
-          width={WW}
-          videoId={song.videoId}
-          play={playing}
-          onChangeState={onStateChange}
-          onError={(e: any) => setYtError(String(e || 'YouTube error'))}
-          forceAndroidAutoplay
-          webViewProps={{
-            allowsBackgroundMediaPlayback: true,
-            allowsInlineMediaPlayback: true,
-            mediaPlaybackRequiresUserAction: false,
-            javaScriptEnabled: true,
-            domStorageEnabled: true,
-          }}
-          initialPlayerParams={{
-            modestbranding: true,
-            playsinline: 1,
-            rel: 0,
-            controls: 0,
-          }}
-        />
-      </View>
-
-      {ytError && (
-        <View style={styles.errorBox}><Text style={styles.errorText}>⚠️ {ytError}</Text></View>
-      )}
-
       <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 32 }]} showsVerticalScrollIndicator={false}>
-        <Image source={{ uri: song.thumbnail || undefined }} style={[styles.art, { width: Math.min(280, WW * 0.72), height: Math.min(280, WW * 0.72) }]} />
+        {/* Audio player – no YouTube iframe */}
+        <View style={styles.playerWrap}>
+          <Image source={{ uri: song.thumbnail || undefined }} style={styles.art} />
+        </View>
+
+        {ytError && (
+          <View style={styles.errorBox}><Text style={styles.errorText}>⚠️ {ytError}</Text></View>
+        )}
+
         <Text style={styles.title}>{song.title}</Text>
         <Text style={styles.artist}>{song.artist}</Text>
 
         <View style={styles.controlsRow}>
           <Pressable onPress={prevTrack} style={styles.ctrlBtn}><Feather name="skip-back" size={22} color="#fff" /></Pressable>
-          <Pressable onPress={() => setPlaying((p) => !p)} style={styles.playBtn}><Feather name={playing ? 'pause' : 'play'} size={24} color="#000" /></Pressable>
+          <Pressable onPress={handlePlayPause} style={styles.playBtn}><Feather name={playing ? 'pause' : 'play'} size={24} color="#000" /></Pressable>
           <Pressable onPress={nextTrack} style={styles.ctrlBtn}><Feather name="skip-forward" size={22} color="#fff" /></Pressable>
         </View>
 
@@ -131,11 +208,10 @@ export default function PlayerScreen() {
           <Pressable onPress={handleDownload} disabled={downloading} style={[styles.pill, downloading && { opacity: 0.5 }]}><Feather name="download" size={16} color="#fff" /><Text style={styles.pillText}>{downloading ? 'Downloading…' : 'Download MP3'}</Text></Pressable>
         </View>
 
-        {/* Queue preview */}
         {queue.length > 1 && (
           <View style={{ width: '100%', marginTop: 24 }}>
             <Text style={{ color: '#fff', fontWeight: '700', marginBottom: 8 }}>Queue ({queue.length})</Text>
-            {queue.slice(index + 1, index + 6).map((q, i) => (
+            {queue.slice(index + 1, index + 6).map((q: any, i: number) => (
               <Pressable key={q.videoId + i} onPress={() => playSong(q, queue, index + 1 + i)} style={{ flexDirection: 'row', paddingVertical: 6, alignItems: 'center' }}>
                 <Image source={{ uri: q.thumbnail || undefined }} style={{ width: 44, height: 44, borderRadius: 4, backgroundColor: '#222' }} />
                 <View style={{ flex: 1, marginLeft: 8 }}>
@@ -147,7 +223,6 @@ export default function PlayerScreen() {
           </View>
         )}
 
-        {/* Lyrics */}
         <View style={{ width: '100%', marginTop: 24 }}>
           <Text style={{ color: '#fff', fontWeight: '700', marginBottom: 8 }}>Lyrics {lyrics?.source ? `· ${lyrics.source}` : ''}</Text>
           {lyrics?.synced ? (
@@ -166,16 +241,16 @@ export default function PlayerScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  hiddenPlayer: { position: 'absolute', left: -9999, top: 0, width: 1, height: 1, opacity: 0 },
+  playerWrap: { borderRadius: 12, overflow: 'hidden', marginBottom: 16, alignSelf: 'center', backgroundColor: '#111' },
   scrollContent: { padding: 16, alignItems: 'center', flexGrow: 1 },
   art: { borderRadius: 12, backgroundColor: '#222', aspectRatio: 1 },
   title: { color: '#fff', fontSize: 20, fontWeight: '800', marginTop: 16, textAlign: 'center' },
   artist: { color: '#999', marginTop: 6, textAlign: 'center' },
-  controlsRow: { flexDirection: 'row', marginTop: 20, alignItems: 'center', gap: 12 } as any,
+  controlsRow: { flexDirection: 'row', marginTop: 20, alignItems: 'center', gap: 12 },
   ctrlBtn: { backgroundColor: '#222', padding: 14, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   playBtn: { backgroundColor: '#1DB954', padding: 16, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },
-  actionsRow: { flexDirection: 'row', marginTop: 16, flexWrap: 'wrap', justifyContent: 'center', gap: 10 } as any,
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#222', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 } as any,
+  actionsRow: { flexDirection: 'row', marginTop: 16, flexWrap: 'wrap', justifyContent: 'center', gap: 10 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#222', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20 },
   pillActive: { backgroundColor: '#1DB954' },
   pillText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   pillTextActive: { color: '#000' },

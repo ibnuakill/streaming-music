@@ -41,6 +41,48 @@ async function yt(endpoint, body = {}, query = '') {
   return res.json();
 }
 
+function extractAudioUrl(data) {
+  const sd = data && data.streamingData;
+  if (!sd) return null;
+  const all = [...(sd.formats || []), ...(sd.adaptiveFormats || [])];
+  const audios = all.filter((f) => f.mimeType && f.mimeType.includes('audio'));
+  const cands = audios.length ? audios : all;
+  const withUrl = cands.filter((f) => f.url);
+  if (!withUrl.length) return null;
+  withUrl.sort((a, b) => (b.bitrate || b.averageBitrate || 0) - (a.bitrate || a.averageBitrate || 0));
+  return withUrl[0].url;
+}
+
+async function getAudioUrl(videoId) {
+  const ANDROID_CTX = { client: { clientName: 'ANDROID', clientVersion: '20.13.41', androidSdkVersion: 30, hl: 'en', gl: 'US' } };
+  const IOS_CTX = { client: { clientName: 'IOS', clientVersion: '20.13.41', deviceModel: 'iPhone16,2', hl: 'en', gl: 'US' } };
+  const WEB_CTX = CONTEXT;
+  const attempts = [
+    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: ANDROID_CTX, headers: { 'Content-Type': 'application/json', 'User-Agent': 'com.google.android.youtube/20.13.41 (Linux; U; Android 13; en_US)', Origin: 'https://www.youtube.com' } },
+    { url: 'https://www.youtube.com/youtubei/v1/player', ctx: IOS_CTX, headers: { 'Content-Type': 'application/json', 'User-Agent': 'com.google.ios.youtube/20.13.41 (iPhone16,2; U; CPU iPhone OS 17_5 like Mac OS X)', Origin: 'https://www.youtube.com' } },
+    { url: `${YTM}/player`, ctx: WEB_CTX, headers: HEADERS },
+  ];
+  let lastErr = null;
+  for (const a of attempts) {
+    try {
+      const r = await fetch(`${a.url}?prettyPrint=false`, {
+        method: 'POST',
+        headers: a.headers,
+        body: JSON.stringify({ context: a.ctx, videoId, playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } } }),
+      });
+      if (!r.ok) throw new Error(`player ${r.status}`);
+      const j = await r.json();
+      if (j.playabilityStatus && j.playabilityStatus.status !== 'OK' && j.playabilityStatus.status !== 'UNPLAYABLE') {
+        lastErr = j.playabilityStatus.reason || j.playabilityStatus.status;
+      }
+      const u = extractAudioUrl(j);
+      if (u) return u;
+      lastErr = j.playabilityStatus ? j.playabilityStatus.reason : 'no url';
+    } catch (e) { lastErr = e.message; }
+  }
+  throw new Error(lastErr || 'no audio url');
+}
+
 /* ---------------- deep helpers ---------------- */
 function findAll(obj, key, out = []) {
   if (!obj || typeof obj !== 'object') return out;
@@ -277,6 +319,17 @@ app.get('/api/sponsorblock', async (req, res) => {
     });
   } catch {
     res.json({ segments: [] });
+  }
+});
+
+app.get('/api/audio', async (req, res) => {
+  const videoId = String(req.query.videoId || '').trim();
+  if (!/^[\w-]{11}$/.test(videoId)) return res.status(400).json({ error: 'bad videoId' });
+  try {
+    const url = await getAudioUrl(videoId);
+    res.json({ url });
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'failed to get audio' });
   }
 });
 
@@ -569,6 +622,12 @@ app.get('/api/download-progress', async (req, res) => {
 app.get('/api/resolve', async (req, res) => {
   try {
     const raw = String(req.query.url || '').trim();
+    if (/^[\w-]{11}$/.test(raw)) {
+      try {
+        const url = await getAudioUrl(raw);
+        return res.json({ url, videoId: raw });
+      } catch (e) { return res.status(502).json({ error: e.message }); }
+    }
     let u;
     try { u = new URL(raw.includes('://') ? raw : 'https://' + raw); } catch { return res.status(400).json({ error: 'Invalid URL' }); }
     const list = u.searchParams.get('list');

@@ -32,6 +32,7 @@ export const ytApi = {
     if (browseId) p.set('browseId', browseId);
     return fetchJSON(`/api/lyrics?${p.toString()}`);
   },
+  audio: (videoId) => fetchJSON(`/api/audio?videoId=${encodeURIComponent(videoId)}`),
   sponsorblock: (videoId) => fetchJSON(`/api/sponsorblock?videoId=${encodeURIComponent(videoId)}`),
   downloadStart: (videoId) => fetchJSON(`/api/download-start?videoId=${encodeURIComponent(videoId)}`),
   downloadProgress: (progressUrl) => fetchJSON(`/api/download-progress?progressUrl=${encodeURIComponent(progressUrl)}`),
