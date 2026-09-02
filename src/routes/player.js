@@ -5,7 +5,7 @@ module.exports = (app) => {
   app.get('/api/audio', async (req, res) => {
     const videoId = String(req.query.videoId || '').trim();
     if (!/^[\w-]{11}$/.test(videoId)) return res.status(400).json({ error: 'bad videoId' });
-    try { const url = await getAudioUrl(videoId); res.json({ url }); } catch (e) { const msg = e.message || 'failed'; res.status(e.playStatus === 'ERROR' || /unavailable/i.test(msg) ? 404 : 502).json({ error: msg }); }
+    try { const url = await getAudioUrl(videoId); if(!url) return res.status(404).json({ error: 'unavailable', code:'NO_STREAM' }); res.json({ url }); } catch (e) { const msg = e.message || 'failed'; const isUnavailable = e.playStatus === 'ERROR' || /unavailable|not available|private|deleted|age.?restricted|region|copyright|live.?chat/i.test(msg); const isTransient = /player 429|player 5\d\d|YTM.*5\d\d|fetch|timeout|aborted|bot|sign in/i.test(msg); if(isUnavailable) return res.status(404).json({ error: msg, code:'UNAVAILABLE' }); if(isTransient) return res.status(503).json({ error: msg, code:'TRANSIENT', retry:true }); res.status(502).json({ error: msg, code:'BAD_GATEWAY' }); }
   });
   app.get('/api/sponsorblock', async (req, res) => {
     try { const vid = String(req.query.videoId || ''); const cats = encodeURIComponent(JSON.stringify(['sponsor', 'selfpromo', 'interaction', 'intro', 'outro', 'music_offtopic'])); const r = await fetch(`https://sponsor.ajay.app/api/skipSegments?videoID=${encodeURIComponent(vid)}&categories=${cats}`); if (r.status === 404 || !r.ok) return res.json({ segments: [] }); const arr = await r.json(); res.json({ segments: arr.filter((s) => s.actionType === 'skip').map((s) => ({ category: s.category, start: s.segment[0], end: s.segment[1] })) }); } catch { res.json({ segments: [] }); }

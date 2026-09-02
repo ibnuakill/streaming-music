@@ -125,8 +125,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         state = state.copyWith(error: null);
         return;
       } catch (e) {
+        final msg=e.toString(); final is404=msg.contains('404')||msg.toLowerCase().contains('unavailable')||msg.toLowerCase().contains('not available');
+        if(is404) { state = state.copyWith(loading:false, error:'Lagu tidak tersedia (404). Coba lagu lain.'); return; }
         if (attempt == 1)
-          state = state.copyWith(loading: false, error: e.toString());
+          state = state.copyWith(loading: false, error: msg.contains('502')||msg.contains('503')?'Server sibuk (502/503) — tap Coba lagi':msg);
         else
           await Future.delayed(const Duration(milliseconds: 800));
       }
@@ -211,6 +213,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void togglePlay() => state.playing ? _p.pause() : _p.play();
   void toggleShuffle() => state = state.copyWith(shuffle: !state.shuffle);
   void toggleRepeat() => state = state.copyWith(repeat: (state.repeat + 1) % 3);
+  void retry(){ final s=state.current; if(s!=null) { state=state.copyWith(loading:true, error:null); _load(s['videoId']); } }
+  void skipUnavailable(){ state=state.copyWith(loading:false, error:'Lagu tidak tersedia — skip ke berikutnya'); next(); }
   void seek(Duration d) => _p.seek(d);
   void setQueue(List<Map> q, int i) {
     state = state.copyWith(queue: q, index: i);

@@ -9,10 +9,14 @@ final dioProvider = Dio(
     receiveTimeout: const Duration(seconds: 30),
   ),
 )..interceptors.add(InterceptorsWrapper(onError: (e, h) async {
-      if (e.type == DioExceptionType.receiveTimeout || e.type == DioExceptionType.connectionTimeout) {
+      final code = e.response?.statusCode;
+      final isRetryable = e.type==DioExceptionType.connectionTimeout || e.type==DioExceptionType.receiveTimeout || e.type==DioExceptionType.connectionError || (code!=null && [429,500,502,503,504].contains(code));
+      if (isRetryable) {
         final opts = e.requestOptions;
-        if ((opts.extra['retries'] as int? ?? 0) < 1) {
-          opts.extra['retries'] = 1;
+        final retries = opts.extra['retries'] as int? ?? 0;
+        if (retries < 2) {
+          opts.extra['retries'] = retries+1;
+          await Future.delayed(Duration(milliseconds: 700*(retries+1)));
           try { final r = await Dio(BaseOptions(baseUrl: AppConfig.apiBase, connectTimeout: const Duration(seconds: 15), receiveTimeout: const Duration(seconds: 30))).fetch(opts); return h.resolve(r); } catch (_) {}
         }
       }

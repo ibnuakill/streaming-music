@@ -1,173 +1,97 @@
-# Rich Music
+# Musera
 
-**Pemutar musik web gratis** bergaya Spotify, katalog [YouTube Music](https://music.youtube.com). Tanpa akun.
+**Pemutar musik gratis** bergaya Spotify, katalog [YouTube Music](https://music.youtube.com) — sekarang **Flutter (Android/iOS/Web) + Node API**.
 
-- **Website:** [richmusic.vercel.app](https://richmusic.vercel.app)
-- **Repo:** [github.com/ramax100/YT-Music-Mod](https://github.com/ramax100/YT-Music-Mod)
-- **Telegram:** [t.me/ChRichStore](https://t.me/ChRichStore)
+- **Website:** API di Vercel — `API_URL` via `.env`
+- **Repo:** `ibnuakill/streaming-music` — branch `flutter` (clean), `main` (legacy RN)
+- **Stack:** Flutter 3.41 + Riverpod + just_audio/audio_service + Supabase + Hive
 
-Project ini **gratis** dan **bebas dipakai**. Fork, ubah, deploy sendiri, atau bagikan — silakan.
-
----
-
-## Tentang
-
-Rich Music adalah pemutar musik di browser. Cari lagu, buka album dan artis, buat playlist, lihat lirik, atur antrian — semuanya tanpa daftar akun.
-
-Library (favorit, playlist, riwayat, statistik) tersimpan di perangkatmu. Audio diputar lewat pemutar resmi YouTube.
-
-Tidak berafiliasi dengan YouTube, Google, atau Spotify.
+Tanpa akun wajib. Library lokal, streaming via YouTube Music InnerTube.
 
 ---
 
-## Channel Telegram
+## Arsitektur
 
-Update, info fitur, dan komunitas:
+```
+musera/
+├── app/                    # Flutter app (musera)
+│   ├── lib/src/core/       # config, network (dio), theme, widgets
+│   ├── lib/src/data/       # models, datasources (yt_remote, library_local)
+│   ├── lib/src/features/   # auth, home, search, browse, charts, library, player
+│   ├── lib/main.dart       # dotenv + Supabase + audio_service init + GoRouter
+│   ├── .env.example        # API_URL, SUPABASE_URL, SUPABASE_ANON
+│   └── android/ios/web
+├── src/                    # Backend modular (Node)
+│   ├── app.js              # createApp() express
+│   ├── config/yt.js        # YTM CONTEXT/HEADERS
+│   ├── services/yt.js      # yt(), getAudioUrl() multi-client + visitorData
+│   ├── services/lyrics.js  # lyrics multi-source
+│   ├── utils/parser.js     # parseSections etc
+│   └── routes/             # home, search, player, browse, lyrics, misc
+├── api/index.js            # Vercel entry
+├── public/                 # legacy web static
+├── server.js               # shim -> src/app.js
+└── vercel.json
+```
 
-### [t.me/ChRichStore](https://t.me/ChRichStore)
-
-Silakan join.
-
----
-
-## Cara memakai website
-
-1. Buka **[richmusic.vercel.app](https://richmusic.vercel.app)**
-2. Cari lagu, atau pilih dari Home / Charts / Browse all
-3. Lagu pertama langsung play. Kalau klik lagu lain, Now Playing menampilkan lagu baru — tekan **Play** untuk mengganti putaran
-4. Ikon hati = favorit. **Playlist** = simpan ke folder. Di halaman album/artis, **Save** masuk tab Saved
-5. Pindah HP? Library → **Backup**, di perangkat baru **Restore**
-
-### Desktop / PC
-
-Di laptop atau komputer, Rich Music langsung siap. Buka situsnya, pilih lagu, dan putar — tidak perlu pengaturan tambahan.
-
-### Putar di latar belakang (Android)
-
-Musik tetap jalan saat layar terkunci atau pindah aplikasi, **tanpa mode desktop**.
-
-Buka [richmusic.vercel.app](https://richmusic.vercel.app) di **[Brave Browser](https://play.google.com/store/apps/details?id=com.brave.browser)** — putar lagu, lalu keluar dari tab atau kunci HP. Audio tetap berlanjut.
-
-Di Chrome, aktifkan **⋮ → Situs desktop** jika ingin hasil serupa.
+Branch: `main` = React Native Expo lama, `flutter` = Flutter clean (hapus `mobile_backup`, `server.js.bak`).
 
 ---
 
 ## Fitur
 
-### Home
-- Sapaan sesuai waktu dan tanggal
-- Recently played
-- Mix for you — rekomendasi dari favorit & riwayat
-- Liked songs, playlist lokal, item Saved
-- Rak YouTube Music
-- Carousel geser; di desktop ada panah
-
-### Search
-- Saran otomatis saat mengetik
-- Filter: All, Songs, Videos, Albums, Artists, Playlists
-- Top result sebagai kartu besar
-- Hasil dikelompokkan (lagu, album, artis, playlist)
-- Riwayat pencarian
-- Browse all — mood & genre
-
-### Charts
-- Tangga lagu, playlist genre, artis teratas
-
-### Library
-Tanpa login, tersimpan di perangkat ini.
-
-| Tab | Isi |
-| --- | --- |
-| Playlists | Playlist buatanmu + kartu Liked Songs |
-| Favorites | Lagu yang di-heart, Play all / Shuffle |
-| Saved | Album, playlist, artis yang di-Save |
-| History | Yang baru diputar |
-| Stats | Total putar, menit, top artis, lagu terbanyak |
-
-- New playlist
-- Import dari link YouTube Music (playlist, album, artis, lagu)
-- Backup / Restore file JSON
-- Rename, hapus, urutkan lagu (panah atau drag di desktop)
-
-### Player
-- Streaming YouTube IFrame (audio YouTube Music)
-- Quality di menu ⋮ — bisa dinaikkan ke YouTube max
-- Preview lagu lain tanpa memutus yang sedang play
-- Shuffle & Repeat (mati / semua / satu)
-- Kecepatan 0.5×–2×
-- Antrian: Your queue dulu, lalu radio. Tersimpan saat refresh
-- Play next / Add to queue
-- Related: lagu, album, playlist, artis
-- Lirik sinkron — tap baris untuk loncat
-- Share (menu HP atau salin tautan)
-- Download MP3
-- SponsorBlock — skip intro/sponsor (bisa dimatikan)
-- Sleep timer
-- Widget mengambang + Picture-in-Picture
-- Mode gelap / terang
-- Nama artis bisa diklik ke halaman artis
-
-### Pintasan keyboard
-
-| Tombol | Aksi |
-| --- | --- |
-| `Space` | Play / Pause |
-| `Shift` + `→` | Berikutnya |
-| `Shift` + `←` | Sebelumnya |
-| `Esc` | Tutup Now Playing |
-| `L` | Ganti tema |
-| `P` | Widget |
+**Home** — salam waktu, Pilihan Cepat (habit DJ-aware), Putar lagi, Disukai, rak YT Music carousel
+**Search** — suggest, filter all/songs/albums/artists/playlists, top result card
+**Library** — Hive lokal: playlists, fav, history, stats (tanpa login)
+**Player** — just_audio + audio_service MediaStyle notifikasi, shuffle/repeat, slider, antrian+lirik exclusive toggle (antrian default, klik lirik hide antrian), cachedNetworkImage, error 502/503 retry + 404 skip
+**Auth** — Supabase `supabase_flutter`
+**Lain** — go_router ShellRoute + mini_player, cached lirik per videoId, pilihan cepat plays label jt/rb
 
 ---
 
-## Menjalankan di komputer sendiri
+## Menjalankan
 
-Perlu [Node.js](https://nodejs.org) 18+ (disarankan 20).
+### Backend (Node 20+)
 
 ```bash
-git clone https://github.com/ramax100/YT-Music-Mod.git
-cd YT-Music-Mod
 npm install
-npm start
+npm start          # http://localhost:3000
+# Vercel: vercel --prod
 ```
 
-Buka **http://localhost:3000**
-
----
-
-## Deploy ke Vercel
+### Flutter App
 
 ```bash
-npm i -g vercel
-cd YT-Music-Mod
-vercel login
-vercel --prod
+cd app
+cp .env.example .env   # isi API_URL, SUPABASE_URL, SUPABASE_ANON
+flutter pub get
+flutter run            # device/emulator -d <id>
+
+# atau via dart-define (CI)
+flutter run --dart-define=API_URL=https://... --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON=...
+flutter build apk --debug
 ```
 
-Atau di dashboard Vercel: **Import Git Repository** → pilih `ramax100/YT-Music-Mod` → Deploy.
+**Env:** `app/.env` (gitignored) — jangan hardcode key di frontend. Fallback `--dart-define` didukung `AppConfig`.
+
+**Icons/Splash:** `assets/musera-logo.png` → `dart run flutter_launcher_icons` + `dart run flutter_native_splash:create` (bg #0B0B1A)
 
 ---
 
-## Isi repo
+## API
 
-```
-YT-Music-Mod/
-├── public/           # website (HTML, CSS, JS, logo)
-├── server.js         # API: YouTube Music, lirik, download
-├── api/index.js      # entry Vercel
-├── vercel.json
-├── package.json
-└── README.md
-```
+`GET /api/home` ` /api/charts` ` /api/moods` ` /api/search?q=&filter=` ` /api/suggest?q=` ` /api/browse?id=` ` /api/audio?videoId=` ` /api/next?videoId=` ` /api/lyrics?title=&artist=&duration=&browseId=` ` /api/sponsorblock?videoId=`
+
+Backend `yt()` retry 3x backoff 600ms untuk 429/5xx, `dio_client` retry 2x untuk 502/503/500/429 + timeout 15/30s. `getAudioUrl` bedakan 404 UNAVAILABLE vs 503 TRANSIENT (retry) vs 502.
+
+---
+
+## Deploy Vercel
+
+`vercel.json` → builds `api/index.js @vercel/node` + `public/** @vercel/static`, route `/api/(.*)` ke `api/index.js`. Set env `SUPABASE_*` di dashboard jika butuh.
 
 ---
 
 ## Lisensi
 
-**Gratis. Bebas dipakai.**
-
-Jalankan, bagikan, ubah, dan deploy ulang sesukamu. Tidak ada biaya.
-
----
-
-**[Buka Rich Music](https://richmusic.vercel.app)** · **[Join Telegram](https://t.me/ChRichStore)** · **[GitHub](https://github.com/ramax100/YT-Music-Mod)**
+Gratis, bebas pakai. Tidak berafiliasi dengan YouTube/Google/Spotify.

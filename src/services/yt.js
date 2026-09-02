@@ -1,11 +1,20 @@
 const { YTM, CONTEXT, HEADERS } = require('../config/yt');
 
 async function yt(endpoint, body = {}, query = '') {
-  const res = await fetch(`${YTM}/${endpoint}?prettyPrint=false${query}`, {
-    method: 'POST', headers: HEADERS, body: JSON.stringify({ context: CONTEXT, ...body }),
-  });
-  if (!res.ok) throw new Error(`YTM ${endpoint} -> ${res.status}`);
-  return res.json();
+  let lastErr;
+  for (let attempt=0; attempt<3; attempt++) {
+    try {
+      const res = await fetch(`${YTM}/${endpoint}?prettyPrint=false${query}`, {
+        method: 'POST', headers: HEADERS, body: JSON.stringify({ context: CONTEXT, ...body }),
+      });
+      if (!res.ok) {
+        if ([429,500,502,503,504].includes(res.status) && attempt<2) { await new Promise(r=>setTimeout(r,600*(attempt+1))); continue; }
+        throw new Error(`YTM ${endpoint} -> ${res.status}`);
+      }
+      return await res.json();
+    } catch(e){ lastErr=e; if(attempt<2 && /fetch|aborted|timeout/i.test(e.message)) { await new Promise(r=>setTimeout(r,600*(attempt+1))); continue; } throw e; }
+  }
+  throw lastErr;
 }
 function extractAudioUrl(data) {
   const sd = data && data.streamingData; if (!sd) return null;
@@ -18,8 +27,11 @@ function extractAudioUrl(data) {
 }
 let cachedVisitor = 'CgtjbFU2cG9XNXVtNCjg597UBjIKCgJJRBIEGgAgDmLfAgrcAjIxLllUPUFrbnJrZW1QWElUdjF0dlFPWUlmcWRRNG5EdFc4WXZmUWdGOE9QOXJMX2c2ZUh5';
 let visitorFetchedAt = Date.now();
+let visitorRefreshTimer=null;
+function scheduleVisitorRefresh(){ if(visitorRefreshTimer) return; visitorRefreshTimer=setInterval(()=>{ getVisitorData().catch(()=>{}); },20*60*1000); if(visitorRefreshTimer.unref) visitorRefreshTimer.unref(); }
 async function getVisitorData() {
-  if (cachedVisitor && Date.now() - visitorFetchedAt < 30 * 60 * 1000) return cachedVisitor;
+  scheduleVisitorRefresh();
+  if (cachedVisitor && Date.now() - visitorFetchedAt < 20 * 60 * 1000) return cachedVisitor;
   for (const u of ['https://www.youtube.com/', 'https://m.youtube.com/', 'https://music.youtube.com/']) {
     try {
       const r = await fetch(u, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'en-US,en;q=0.9' } });
@@ -46,16 +58,17 @@ async function getAudioUrl(videoId) {
   for (const a of attempts) {
     try {
       const r = await fetch(`${a.url}?prettyPrint=false`, { method: 'POST', headers: a.headers, body: JSON.stringify({ context: a.ctx, videoId, playbackContext: { contentPlaybackContext: { html5Preference: 'HTML5_PREF_WANTS' } }, racyCheckOk: true, contentCheckOk: true }) });
-      if (!r.ok) throw new Error(`player ${r.status}`);
+      if (!r.ok) { if([429,500,502,503,504].includes(r.status)) { lastErr=`player ${r.status}`; continue; } throw new Error(`player ${r.status}`); }
       const j = await r.json(); lastStatus = j.playabilityStatus ? j.playabilityStatus.status : null;
       if (j.playabilityStatus && j.playabilityStatus.status !== 'OK') {
         lastErr = j.playabilityStatus.reason || j.playabilityStatus.status;
-        if (lastStatus === 'ERROR' && /unavailable/i.test(lastErr)) continue;
+        if (lastStatus === 'ERROR' && /unavailable|private|deleted|age.?restricted|region|copyright/i.test(lastErr)) { const err=new Error(lastErr); err.playStatus='ERROR'; throw err; }
         if (/bot|sign in/i.test(lastErr)) continue;
+        if (lastStatus==='LOGIN_REQUIRED' || lastStatus==='UNPLAYABLE') continue;
       }
       const u = extractAudioUrl(j); if (u) return u;
       lastErr = j.playabilityStatus ? (j.playabilityStatus.reason || 'no url') : 'no url';
-    } catch (e) { lastErr = e.message; }
+    } catch (e) { if(e.playStatus==='ERROR') throw e; lastErr = e.message; }
   }
   if (lastErr && /bot|sign in|login/i.test(lastErr)) {
     try {

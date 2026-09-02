@@ -79,7 +79,7 @@ class HomeScreen extends ConsumerWidget {
     final player=ref.read(playerProvider.notifier);
     return Scaffold(backgroundColor: Colors.black, body: home.when(
       loading:()=>const Center(child: CircularProgressIndicator(color: Color(0xFF1DB954))),
-      error:(e,_ )=>Center(child: Column(mainAxisSize:MainAxisSize.min, children:[Text('$e', style:const TextStyle(color:Colors.white)), TextButton(onPressed:()=>ref.refresh(homeProvider), child:const Text('Retry', style:TextStyle(color:Color(0xFF1DB954))))])),
+      error:(e,_ )=>Center(child: Column(mainAxisSize:MainAxisSize.min, children:[Text(e.toString().contains('502')||e.toString().contains('503')?'Server sibuk (502/503) — coba lagi':'$e', textAlign:TextAlign.center, style:const TextStyle(color:Colors.white)), const SizedBox(height:8), FilledButton(onPressed:()=>ref.refresh(homeProvider), style: FilledButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black), child: const Text('Coba lagi'))])),
       data:(d){
         final sections=(d['sections'] as List? ?? []);
         final history = lib.history.take(10).toList();
